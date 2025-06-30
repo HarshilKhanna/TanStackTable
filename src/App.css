@@ -364,6 +364,8 @@
   align-items: center;
   gap: 8px;
   cursor: move;
+  max-width: 100%;
+  overflow: visible;
 }
 
 .sort-item.dragging {
@@ -385,10 +387,12 @@
   display: flex;
   flex: 1;
   gap: 8px;
+  min-width: 0;
+  margin-right: 8px;
 }
 
 .sort-select {
-  flex: 1;
+  flex: 0.7;
   padding: 8px 12px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
@@ -396,6 +400,7 @@
   color: #374151;
   background: #f9fafb;
   cursor: pointer;
+  min-width: 105px;
 }
 
 .sort-select:hover {
@@ -419,6 +424,7 @@
   justify-content: center;
   width: 28px;
   height: 28px;
+  flex-shrink: 0;
 }
 
 .remove-sort:hover {
@@ -508,16 +514,16 @@
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-left: 24px;
-  background: white;
-  border: 1px solid #e5e7eb;
+  margin-left: 0;
+  background: transparent;
+  border: none;
   border-radius: 6px;
   padding: 8px;
 }
 
 .filter-field-select,
 .filter-operator-select {
-  min-width: 120px;
+  min-width: 105px;
   padding: 8px 12px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
@@ -525,16 +531,30 @@
   color: #374151;
   background: white;
   cursor: pointer;
+  flex: 0.7;
 }
 
-.filter-value-input {
-  flex: 1;
+.filter-value-select {
+  width: calc(100% - 16px);
   padding: 8px 12px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   font-size: 14px;
   color: #374151;
   background: white;
+  cursor: pointer;
+  margin-left: 0;
+}
+
+.filter-value-input {
+  width: calc(100% - 16px);
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #374151;
+  background: white;
+  margin-left: 0;
 }
 
 .filter-value-input::placeholder {

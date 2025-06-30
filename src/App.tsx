@@ -1312,33 +1312,33 @@ function TransposedTable({
   // Sort and filter the data
   const processedData = useMemo(() => {
     let result = [...data];
-
+    
     // Apply sorting
     if (sortBy) {
       result.sort((a, b) => {
-        let aValue: any, bValue: any;
-        
-        if (sortBy.field === 'taskid') {
-          aValue = parseInt(a.taskid?.replace(/\D/g, '') || '0');
-          bValue = parseInt(b.taskid?.replace(/\D/g, '') || '0');
-        } else if (sortBy.field === 'triggeredTasks' || sortBy.field === 'openTasks') {
-          aValue = a[sortBy.field] ?? 0;
-          bValue = b[sortBy.field] ?? 0;
-        } else if (sortBy.field === 'contractid') {
-          aValue = parseInt(a.contractid?.replace(/\D/g, '') || '0');
-          bValue = parseInt(b.contractid?.replace(/\D/g, '') || '0');
-        } else {
-          aValue = a[sortBy.field];
-          bValue = b[sortBy.field];
-          if (typeof aValue === 'string' && typeof bValue === 'string') {
-            return sortBy.direction === 'asc' 
-              ? aValue.localeCompare(bValue)
-              : bValue.localeCompare(aValue);
-          }
+      let aValue: any, bValue: any;
+      
+      if (sortBy.field === 'taskid') {
+        aValue = parseInt(a.taskid?.replace(/\D/g, '') || '0');
+        bValue = parseInt(b.taskid?.replace(/\D/g, '') || '0');
+      } else if (sortBy.field === 'triggeredTasks' || sortBy.field === 'openTasks') {
+        aValue = a[sortBy.field] ?? 0;
+        bValue = b[sortBy.field] ?? 0;
+      } else if (sortBy.field === 'contractid') {
+        aValue = parseInt(a.contractid?.replace(/\D/g, '') || '0');
+        bValue = parseInt(b.contractid?.replace(/\D/g, '') || '0');
+      } else {
+        aValue = a[sortBy.field];
+        bValue = b[sortBy.field];
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+          return sortBy.direction === 'asc' 
+            ? aValue.localeCompare(bValue)
+            : bValue.localeCompare(aValue);
         }
-        
-        return sortBy.direction === 'asc' ? aValue - bValue : bValue - aValue;
-      });
+      }
+      
+      return sortBy.direction === 'asc' ? aValue - bValue : bValue - aValue;
+    });
     }
 
     // Apply filters
@@ -1407,9 +1407,9 @@ function TransposedTable({
                 );
               })}
             </SortableContext>
-          </tbody>
-        </table>
-      </div>
+        </tbody>
+      </table>
+    </div>
     </DndContext>
   );
 }
