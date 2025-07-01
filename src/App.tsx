@@ -10,6 +10,7 @@ import {
   getFilteredRowModel,
   ColumnFiltersState,
   Row,
+  getPaginationRowModel,
 } from '@tanstack/react-table';
 import type {
   DragEndEvent,
@@ -32,7 +33,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import './App.css';
 
-// Generate random data for 15 contracts
+// Generate random data for 30 contracts
 const categories = ['Security', 'Finance', 'HR', 'Procurement', 'IT', 'Legal', 'Operations'];
 const domains = ['Information Security', 'Accounting', 'Training', 'Vendor Management', 'Cloud', 'Compliance', 'Logistics'];
 const subdomains = ['Risk Assessment', 'Reporting', 'Mandatory Training', 'Supplier Review', 'AWS', 'Policy', 'Inventory'];
@@ -48,6 +49,11 @@ const obligationTitles = [
   'Inventory Check',
   'Financial Statement Review',
   'Access Control Review',
+  'Data Privacy Assessment',
+  'Network Security Review',
+  'Business Continuity Plan',
+  'Disaster Recovery Test',
+  'Performance Evaluation'
 ];
 const criticalities = ['High', 'Medium', 'Low'];
 const complianceStatuses = ['Compliant', 'Non-Compliant'];
@@ -65,7 +71,7 @@ function generateData() {
   // Generate new data only if it doesn't exist in session storage
   const newData = (() => {
     let globalTaskCounter = 1;
-    return Array.from({ length: 15 }, (_, i) => {
+    return Array.from({ length: 30 }, (_, i) => {
       const numTasks = getRandomInt(2, 7);
       const contractid = `CNT-2024-${(i + 1).toString().padStart(3, '0')}`;
       const category = categories[getRandomInt(0, categories.length - 1)];
@@ -262,8 +268,8 @@ function TaskTable({ tasks }: { tasks: any[] }) {
   });
 
   return (
-    <div style={{ marginLeft: 40 }}>
-      <table className="tanstack-table">
+    <div style={{ marginLeft: 40, marginBottom: 0, paddingBottom: 0 }}>
+      <table className="tanstack-table" style={{ marginBottom: 0, borderBottom: 'none' }}>
         <thead>
           <tr>
             {taskColumns.map(column => (
@@ -278,11 +284,11 @@ function TaskTable({ tasks }: { tasks: any[] }) {
               >
                 {typeof column.header === 'string' ? column.header : ''}
               </th>
-                ))}
-              </tr>
+            ))}
+          </tr>
         </thead>
         <tbody>
-          {table.getRowModel().rows.map(row => (
+          {table.getRowModel().rows.map((row, idx, arr) => (
             <React.Fragment key={row.id}>
               <tr>
                 {row.getVisibleCells().map(cell => (
@@ -293,7 +299,8 @@ function TaskTable({ tasks }: { tasks: any[] }) {
                       fontSize: '13px',
                       whiteSpace: 'normal',
                       wordWrap: 'break-word',
-                      lineHeight: 1.4
+                      lineHeight: 1.4,
+                      borderBottom: idx === arr.length - 1 ? 'none' : '1px solid #e5e7eb'
                     }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -528,7 +535,12 @@ function DraggableHeader({ header, openFilterForColumnId, setOpenFilterForColumn
           {/* Filter icon */}
           {header.column.getCanFilter?.() && (
             <span
-              style={{ cursor: 'pointer', marginLeft: 2, fontSize: '13px', color: openFilterForColumnId === header.column.id ? '#2563eb' : '#888' }}
+              style={{ 
+                cursor: 'pointer', 
+                marginLeft: 2, 
+                fontSize: '13px', 
+                color: header.column.getFilterValue() ? '#2563eb' : (openFilterForColumnId === header.column.id ? '#2563eb' : '#888') 
+              }}
               title="Filter"
               onClick={e => {
                 e.stopPropagation();
@@ -639,6 +651,10 @@ function FlatTable({ data, onRemarksChange, columnVisibility }: {
   const [openFilterForColumnId, setOpenFilterForColumnId] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ rowIndex: number, columnId: string } | null>(null);
   const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null);
+  const [{ pageIndex, pageSize }, setPagination] = useState({
+    pageIndex: 0,
+    pageSize: 10
+  });
   const sensors = useSensors(useSensor(PointerSensor));
 
   // Custom filter function that considers edited values
@@ -796,8 +812,13 @@ function FlatTable({ data, onRemarksChange, columnVisibility }: {
       columnFilters, 
       columnOrder, 
       columnSizing,
-      columnVisibility, // Add this line
+      columnVisibility,
+      pagination: {
+        pageIndex,
+        pageSize,
+      },
     },
+    onPaginationChange: setPagination,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnOrderChange: setColumnOrder,
@@ -805,116 +826,178 @@ function FlatTable({ data, onRemarksChange, columnVisibility }: {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
     meta: { onRemarksChange },
+    pageCount: Math.ceil(data.length / pageSize),
+    manualPagination: false,
   });
 
   return (
-    <div style={{ maxWidth: '1200px', width: '100%', margin: '0 auto', fontSize: '13px', overflowX: 'auto' }}>
+    <div style={{ maxWidth: '1200px', width: '100%', margin: '0 auto', fontSize: '13px' }}>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={() => setIsDragging(true)}
         onDragEnd={(event) => {
           setIsDragging(false);
-          const { active, over } = event;
-          if (active.id !== over?.id) {
-            setColumnOrder((prev) => {
-              const oldIndex = prev.indexOf(active.id as string);
-              const newIndex = prev.indexOf(over?.id as string);
-              const newOrder = [...prev];
-              const [moved] = newOrder.splice(oldIndex, 1);
-              newOrder.splice(newIndex, 0, moved);
-              return newOrder;
-            });
+          if (!event.over) return;
+          
+          const newOrder = [...columnOrder];
+          const oldIndex = newOrder.indexOf(event.active.id as string);
+          const newIndex = newOrder.indexOf(event.over.id as string);
+          
+          if (oldIndex !== -1 && newIndex !== -1) {
+            newOrder.splice(newIndex, 0, newOrder.splice(oldIndex, 1)[0]);
+            setColumnOrder(newOrder);
           }
         }}
       >
-        <table className="tanstack-table" style={{ fontSize: '13px', width: '100%' }}>
-        <thead>
-          <SortableContext
-            items={table.getAllLeafColumns().map((col) => col.id)}
-            strategy={horizontalListSortingStrategy}
-          >
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <DraggableHeader
-                    key={header.id}
-                    header={header}
-                    openFilterForColumnId={openFilterForColumnId}
-                    setOpenFilterForColumnId={setOpenFilterForColumnId}
-                  />
+        <div className="tanstack-table-container">
+          <table className="tanstack-table">
+            <thead>
+              <tr>
+                {table.getHeaderGroups().map(headerGroup => (
+                  <React.Fragment key={headerGroup.id}>
+                    {headerGroup.headers.map(header => (
+                      <DraggableHeader
+                        key={header.id}
+                        header={header}
+                        openFilterForColumnId={openFilterForColumnId}
+                        setOpenFilterForColumnId={setOpenFilterForColumnId}
+                      />
+                    ))}
+                  </React.Fragment>
                 ))}
               </tr>
-            ))}
-          </SortableContext>
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map(row => (
-              <tr 
-                key={row.id}
-                style={{
-                  background: editingRowIndex === row.index ? '#f0f9ff' : undefined,
-                }}
-              >
-                {row.getVisibleCells().map(cell => {
-                  const isEditing = editingCell?.rowIndex === row.index && editingCell?.columnId === cell.column.id;
-                  const isEditable = cell.column.id !== 'edit' && cell.column.id !== 'remarks' && editingRowIndex === row.index;
-                  const cellValue = getCellValue(row.index, cell.column.id, cell.getValue());
-                  
-                  return (
-                <td
-                  key={cell.id}
-                  style={{
-                    width: cell.column.getSize(),
-                        fontSize: '13px',
-                        padding: '8px 10px',
-                        whiteSpace: 'normal',
-                        wordWrap: 'break-word',
-                        lineHeight: 1.4,
-                        cursor: isEditable ? 'pointer' : 'default',
-                      }}
-                      onClick={() => {
-                        if (isEditable) {
-                          setEditingCell({ rowIndex: row.index, columnId: cell.column.id });
-                        }
-                      }}
-                    >
-                      {isEditing ? (
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map(row => (
+                <tr key={row.id}>
+                  {row.getVisibleCells().map(cell => (
+                    <td key={cell.id} style={{ minWidth: cell.column.getSize(), width: cell.column.getSize() }}>
+                      {editingCell?.rowIndex === row.index && editingCell?.columnId === cell.column.id ? (
                         <input
+                          type="text"
+                          defaultValue={getCellValue(row.index, cell.column.id, cell.getValue() as string)}
+                          onBlur={e => handleCellEdit(row.index, cell.column.id, e.target.value)}
                           autoFocus
-                          defaultValue={cellValue as string}
                           style={{
                             width: '100%',
                             padding: '4px',
-                            border: '1px solid #2563eb',
+                            border: '1px solid #ddd',
                             borderRadius: '4px',
-                            fontSize: '13px',
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleCellEdit(row.index, cell.column.id, e.currentTarget.value);
-                            } else if (e.key === 'Escape') {
-                              setEditingCell(null);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            handleCellEdit(row.index, cell.column.id, e.target.value);
+                            fontSize: '13px'
                           }}
                         />
                       ) : (
-                        flexRender(cell.column.columnDef.cell, cell.getContext())
+                        <div
+                          onClick={() => {
+                            if (editingRowIndex === row.index && cell.column.id !== 'edit' && cell.column.id !== 'remarks') {
+                              setEditingCell({ rowIndex: row.index, columnId: cell.column.id });
+                            }
+                          }}
+                          style={{ cursor: editingRowIndex === row.index ? 'pointer' : 'default' }}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </div>
                       )}
-                </td>
-                  );
-                })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </DndContext>
+      
+      {/* Pagination Controls */}
+      <div className="pagination-container">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <select
+            value={pageSize}
+            onChange={e => {
+              table.setPageSize(Number(e.target.value));
+            }}
+            style={{
+              padding: '4px 8px',
+              borderRadius: '4px',
+              border: '1px solid #e5e7eb',
+              fontSize: '13px'
+            }}
+          >
+            {[10, 20, 50, 100].map(size => (
+              <option key={size} value={size}>
+                Show {size}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => table.setPageIndex(0)}
+              disabled={!table.getCanPreviousPage()}
+              style={{
+                padding: '4px 8px',
+                border: '1px solid #e5e7eb',
+                borderRadius: '4px',
+                background: table.getCanPreviousPage() ? 'white' : '#f9fafb',
+                cursor: table.getCanPreviousPage() ? 'pointer' : 'not-allowed',
+                color: table.getCanPreviousPage() ? '#374151' : '#9ca3af'
+              }}
+            >
+              ≪
+            </button>
+            <button
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+              style={{
+                padding: '4px 8px',
+                border: '1px solid #e5e7eb',
+                borderRadius: '4px',
+                background: table.getCanPreviousPage() ? 'white' : '#f9fafb',
+                cursor: table.getCanPreviousPage() ? 'pointer' : 'not-allowed',
+                color: table.getCanPreviousPage() ? '#374151' : '#9ca3af'
+              }}
+            >
+              ＜
+            </button>
+            <span style={{ fontSize: '13px', color: '#374151' }}>
+              Page {table.getState().pagination.pageIndex + 1} of{' '}
+              {table.getPageCount()}
+            </span>
+            <button
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+              style={{
+                padding: '4px 8px',
+                border: '1px solid #e5e7eb',
+                borderRadius: '4px',
+                background: table.getCanNextPage() ? 'white' : '#f9fafb',
+                cursor: table.getCanNextPage() ? 'pointer' : 'not-allowed',
+                color: table.getCanNextPage() ? '#374151' : '#9ca3af'
+              }}
+            >
+              ＞
+            </button>
+            <button
+              onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+              disabled={!table.getCanNextPage()}
+              style={{
+                padding: '4px 8px',
+                border: '1px solid #e5e7eb',
+                borderRadius: '4px',
+                background: table.getCanNextPage() ? 'white' : '#f9fafb',
+                cursor: table.getCanNextPage() ? 'pointer' : 'not-allowed',
+                color: table.getCanNextPage() ? '#374151' : '#9ca3af'
+              }}
+            >
+              ≫
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1106,7 +1189,7 @@ function TransposedRow({
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                opacity: filters[key] ? 1 : 0.5,
+                color: filters[key] ? '#2563eb' : (openFilterForRowId === rowId ? '#2563eb' : '#666'),
                 marginRight: '8px'
               }}
             >
@@ -1295,9 +1378,16 @@ function TransposedTable({
   const filterPopupRef = useRef<HTMLDivElement>(null);
   const thRefs = useRef<{ [key: string]: HTMLTableHeaderCellElement | null }>({});
   const sensors = useSensors(useSensor(PointerSensor));
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // Add sorting state
   const [sortBy, setSortBy] = useState<{ field: string; direction: 'asc' | 'desc' } | null>(null);
+
+  // Add pagination state
+  const [displayedColumns, setDisplayedColumns] = useState<number>(10);
+  const COLUMN_WIDTH = 200; // Width of each column
+  const COLUMNS_PER_PAGE = 5; // Number of columns to load per intersection
 
   // Add click handler for sorting
   const handleSort = (field: string) => {
@@ -1316,29 +1406,29 @@ function TransposedTable({
     // Apply sorting
     if (sortBy) {
       result.sort((a, b) => {
-      let aValue: any, bValue: any;
-      
-      if (sortBy.field === 'taskid') {
-        aValue = parseInt(a.taskid?.replace(/\D/g, '') || '0');
-        bValue = parseInt(b.taskid?.replace(/\D/g, '') || '0');
-      } else if (sortBy.field === 'triggeredTasks' || sortBy.field === 'openTasks') {
-        aValue = a[sortBy.field] ?? 0;
-        bValue = b[sortBy.field] ?? 0;
-      } else if (sortBy.field === 'contractid') {
-        aValue = parseInt(a.contractid?.replace(/\D/g, '') || '0');
-        bValue = parseInt(b.contractid?.replace(/\D/g, '') || '0');
-      } else {
-        aValue = a[sortBy.field];
-        bValue = b[sortBy.field];
-        if (typeof aValue === 'string' && typeof bValue === 'string') {
-          return sortBy.direction === 'asc' 
-            ? aValue.localeCompare(bValue)
-            : bValue.localeCompare(aValue);
+        let aValue: any, bValue: any;
+        
+        if (sortBy.field === 'taskid') {
+          aValue = parseInt(a.taskid?.replace(/\D/g, '') || '0');
+          bValue = parseInt(b.taskid?.replace(/\D/g, '') || '0');
+        } else if (sortBy.field === 'triggeredTasks' || sortBy.field === 'openTasks') {
+          aValue = a[sortBy.field] ?? 0;
+          bValue = b[sortBy.field] ?? 0;
+        } else if (sortBy.field === 'contractid') {
+          aValue = parseInt(a.contractid?.replace(/\D/g, '') || '0');
+          bValue = parseInt(b.contractid?.replace(/\D/g, '') || '0');
+        } else {
+          aValue = a[sortBy.field];
+          bValue = b[sortBy.field];
+          if (typeof aValue === 'string' && typeof bValue === 'string') {
+            return sortBy.direction === 'asc' 
+              ? aValue.localeCompare(bValue)
+              : bValue.localeCompare(aValue);
+          }
         }
-      }
-      
-      return sortBy.direction === 'asc' ? aValue - bValue : bValue - aValue;
-    });
+        
+        return sortBy.direction === 'asc' ? aValue - bValue : bValue - aValue;
+      });
     }
 
     // Apply filters
@@ -1351,10 +1441,33 @@ function TransposedTable({
     });
   }, [data, sortBy, filters]);
 
-  // Filter visible columns based on rowVisibility
+  // Set up IntersectionObserver for horizontal pagination
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && displayedColumns < processedData.length) {
+          setDisplayedColumns(prev => Math.min(prev + COLUMNS_PER_PAGE, processedData.length));
+        }
+      },
+      {
+        root: containerRef.current,
+        threshold: 0.1,
+        rootMargin: '0px 100px 0px 0px' // Load more columns before reaching the end
+      }
+    );
+
+    if (sentinelRef.current) {
+      observer.observe(sentinelRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [displayedColumns, processedData.length]);
+
+  // Filter visible columns based on rowVisibility and pagination
   const visibleColumns = useMemo(() => {
-    return externalRowOrder.filter(rowId => rowVisibility[rowId] !== false);
-  }, [externalRowOrder, rowVisibility]);
+    const filtered = externalRowOrder.filter(rowId => rowVisibility[rowId] !== false);
+    return filtered.slice(0, displayedColumns);
+  }, [externalRowOrder, rowVisibility, displayedColumns]);
 
   return (
     <DndContext
@@ -1376,7 +1489,17 @@ function TransposedTable({
         }
       }}
     >
-      <div style={{ overflowX: 'auto', width: '100%', maxWidth: '100%', margin: '0 auto' }}>
+      <div 
+        ref={containerRef} 
+        style={{ 
+          overflowX: 'auto', 
+          width: '100%', 
+          maxWidth: '100%', 
+          margin: '0 auto',
+          position: 'relative',
+          scrollBehavior: 'smooth'
+        }}
+      >
         <table className="tanstack-table">
           <tbody>
             <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
@@ -1391,7 +1514,7 @@ function TransposedTable({
                     key={rowId}
                     rowId={rowId}
                     col={col}
-                    data={processedData}
+                    data={processedData.slice(0, displayedColumns)}
                     filters={filters}
                     setFilters={setFilters}
                     rowSizing={rowSizing}
@@ -1407,9 +1530,52 @@ function TransposedTable({
                 );
               })}
             </SortableContext>
-        </tbody>
-      </table>
-    </div>
+          </tbody>
+        </table>
+        
+        {/* Sentinel element for intersection observer */}
+        {displayedColumns < processedData.length && (
+          <div
+            ref={sentinelRef}
+            style={{
+              position: 'absolute',
+              right: '20px',
+              top: 0,
+              height: '100%',
+              width: '1px',
+              backgroundColor: 'transparent'
+            }}
+          />
+        )}
+
+        {/* Loading indicator */}
+        {displayedColumns < processedData.length && (
+          <div
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: '60px',
+              background: 'linear-gradient(to right, transparent, rgba(255, 255, 255, 0.9))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <div
+              style={{
+                width: '24px',
+                height: '24px',
+                border: '2px solid #e5e7eb',
+                borderTop: '2px solid #2563eb',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite'
+              }}
+            />
+          </div>
+        )}
+      </div>
     </DndContext>
   );
 }
@@ -1705,6 +1871,8 @@ function FilterSection({ onFilter, data }: FilterSectionProps) {
   const [filterCriteria, setFilterCriteria] = useState<FilterCriterion[]>([]);
   const [availableContractIds, setAvailableContractIds] = useState<string[]>([]);
   const [availableTaskIds, setAvailableTaskIds] = useState<string[]>([]);
+  const [allContractIds, setAllContractIds] = useState<string[]>([]);
+  const [allTaskIds, setAllTaskIds] = useState<string[]>([]);
 
   // Get unique contract and task IDs from all data
   useEffect(() => {
@@ -1739,6 +1907,18 @@ function FilterSection({ onFilter, data }: FilterSectionProps) {
     const { contractIds, taskIds } = extractIds(data);
     setAvailableContractIds(contractIds);
     setAvailableTaskIds(taskIds);
+    
+    // Store all IDs when data changes
+    if (data.length > 0) {
+      setAllContractIds(prev => {
+        const newIds = new Set([...prev, ...contractIds]);
+        return Array.from(newIds).sort();
+      });
+      setAllTaskIds(prev => {
+        const newIds = new Set([...prev, ...taskIds]);
+        return Array.from(newIds).sort();
+      });
+    }
   }, [data]);
 
   const filterableFields = [
@@ -1928,71 +2108,71 @@ function FilterSection({ onFilter, data }: FilterSectionProps) {
           width: '100%',
           paddingLeft: '8px'
         }}>
-                    {isIdField ? (
-                      <>
-                        <select
-                          value={criterion.value}
-                          onChange={(e) => handleValueChange(criterion.id, e.target.value)}
-                          className="filter-value-input"
+          {isIdField ? (
+            <>
+              <select
+                value={criterion.value}
+                onChange={(e) => handleValueChange(criterion.id, e.target.value)}
+                className="filter-value-input"
                 style={{ width: '45%' }}
-                        >
+              >
                 <option value="">From</option>
-                          {(criterion.field === 'contractid' ? availableContractIds : availableTaskIds).map((id) => (
-                            <option key={id} value={id}>{id}</option>
-                          ))}
-                        </select>
+                {(criterion.field === 'contractid' ? allContractIds : allTaskIds).map((id) => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
               <span style={{ color: '#666', fontSize: '12px', padding: '0 2px' }}>to</span>
-                        <select
-                          value={criterion.upperValue || ''}
-                          onChange={(e) => handleValueChange(criterion.id, e.target.value, true)}
-                          className="filter-value-input"
+              <select
+                value={criterion.upperValue || ''}
+                onChange={(e) => handleValueChange(criterion.id, e.target.value, true)}
+                className="filter-value-input"
                 style={{ width: '45%' }}
-                        >
+              >
                 <option value="">To</option>
-                          {(criterion.field === 'contractid' ? availableContractIds : availableTaskIds).map((id) => (
-                            <option key={id} value={id}>{id}</option>
-                          ))}
-                        </select>
-                      </>
-                    ) : (
-                      <>
-                        <input
+                {(criterion.field === 'contractid' ? allContractIds : allTaskIds).map((id) => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
+            </>
+          ) : (
+            <>
+              <input
                 type={isNumericField ? 'number' : 'text'}
-                          value={criterion.value}
-                          onChange={(e) => handleValueChange(criterion.id, e.target.value)}
-                          placeholder="From"
-                          className="filter-value-input"
+                value={criterion.value}
+                onChange={(e) => handleValueChange(criterion.id, e.target.value)}
+                placeholder="From"
+                className="filter-value-input"
                 style={{ width: '45%' }}
-                        />
+              />
               <span style={{ color: '#666', fontSize: '12px', padding: '0 2px' }}>to</span>
-                        <input
+              <input
                 type={isNumericField ? 'number' : 'text'}
-                          value={criterion.upperValue || ''}
-                          onChange={(e) => handleValueChange(criterion.id, e.target.value, true)}
-                          placeholder="To"
-                          className="filter-value-input"
+                value={criterion.upperValue || ''}
+                onChange={(e) => handleValueChange(criterion.id, e.target.value, true)}
+                placeholder="To"
+                className="filter-value-input"
                 style={{ width: '45%' }}
-                        />
-                      </>
-                    )}
-                  </div>
+              />
+            </>
+          )}
+        </div>
       );
     }
 
     if (isIdField) {
       return (
         <div style={{ paddingLeft: '8px' }}>
-                    <select
-                      value={criterion.value}
-                      onChange={(e) => handleValueChange(criterion.id, e.target.value)}
-                      className="filter-value-input"
+          <select
+            value={criterion.value}
+            onChange={(e) => handleValueChange(criterion.id, e.target.value)}
+            className="filter-value-input"
             style={{ width: '100%' }}
-                    >
-                      <option value="">Select {selectedField?.label}</option>
-                      {(criterion.field === 'contractid' ? availableContractIds : availableTaskIds).map((id) => (
-                        <option key={id} value={id}>{id}</option>
-                      ))}
-                    </select>
+          >
+            <option value="">Select {selectedField?.label}</option>
+            {(criterion.field === 'contractid' ? allContractIds : allTaskIds).map((id) => (
+              <option key={id} value={id}>{id}</option>
+            ))}
+          </select>
         </div>
       );
     }
@@ -2189,11 +2369,13 @@ interface Contract {
   [key: string]: any;
 }
 
+type ViewMode = 'grouped' | 'flat' | 'transposed';
+
 export default function App() {
   const originalData = useRef(generateData());
   const [data, setData] = useState(() => originalData.current);
   const [flatData, setFlatData] = useState(() => flattenData(originalData.current));
-  const [viewMode, setViewMode] = useState<'grouped' | 'flat' | 'transposed'>('grouped');
+  const [viewMode, setViewMode] = useState<ViewMode>('grouped');
   const [columnOrder, setColumnOrder] = useState(() => getColOrderFromDefs(initialColumns));
   const [columnSizing, setColumnSizing] = useState<{ [key: string]: number }>({});
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -2206,6 +2388,19 @@ export default function App() {
   const [rowOrder, setRowOrder] = useState<string[]>(() => 
     flatColumns.map((col) => col.id || (col as any).accessorKey || '')
   );
+  const [isDragging, setIsDragging] = useState(false);
+  const [{ pageIndex, pageSize }, setPagination] = useState({
+    pageIndex: 0,
+    pageSize: 10
+  });
+
+  // Get paginated data for grouped view
+  const paginatedData = useMemo(() => {
+    if (viewMode !== 'grouped') return data;
+    const start = pageIndex * pageSize;
+    const end = start + pageSize;
+    return data.slice(start, end);
+  }, [data, pageIndex, pageSize, viewMode]);
 
   // Handler for remarks in flat/transposed view
   const handleFlatRemarksChange = (rowIdx: number, value: string) => {
@@ -2421,7 +2616,7 @@ export default function App() {
   };
 
   const table = useReactTable({
-    data,
+    data: paginatedData,
     columns: initialColumns,
     state: {
       columnOrder,
@@ -2507,7 +2702,7 @@ export default function App() {
   };
 
   const groupedTableProps = {
-    data,
+    data: paginatedData,
     columns: initialColumns,
     state: {
       columnOrder,
@@ -2648,6 +2843,7 @@ export default function App() {
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
+          onDragStart={() => setIsDragging(true)}
           onDragEnd={(event) => {
             const { active, over } = event;
             if (active.id !== over?.id) {
@@ -2662,56 +2858,143 @@ export default function App() {
             }
           }}
         >
-          <table className="tanstack-table">
-            <thead>
-              <SortableContext
-                items={table.getAllLeafColumns().map((col) => col.id)}
-                strategy={horizontalListSortingStrategy}
-              >
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <tr key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => (
-                      <DraggableHeader
-                        key={header.id}
-                        header={header}
-                        openFilterForColumnId={openFilterForColumnId}
-                        setOpenFilterForColumnId={setOpenFilterForColumnId}
-                      />
-                    ))}
-                  </tr>
-                ))}
-              </SortableContext>
-            </thead>
-            <tbody>
-              {table.getRowModel().rows
-                .filter(row => row.depth === 0 && !!row.original)
-                .map(row => (
-                  <React.Fragment key={row.id}>
-                    <tr>
-                      {row.getVisibleCells().map(cell => (
-                        <td
-                          key={cell.id}
-                          style={{
-                            width: cell.column.getSize(),
-                          }}
-                        >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
+          <div className="grouped-table-container">
+            <table className="tanstack-table">
+              <thead>
+                <SortableContext
+                  items={table.getAllLeafColumns().map((col) => col.id)}
+                  strategy={horizontalListSortingStrategy}
+                >
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <DraggableHeader
+                          key={header.id}
+                          header={header}
+                          openFilterForColumnId={openFilterForColumnId}
+                          setOpenFilterForColumnId={setOpenFilterForColumnId}
+                        />
                       ))}
                     </tr>
-                    {row.getIsExpanded() && (
+                  ))}
+                </SortableContext>
+              </thead>
+              <tbody>
+                {table.getRowModel().rows
+                  .filter(row => row.depth === 0 && !!row.original)
+                  .map(row => (
+                    <React.Fragment key={row.id}>
                       <tr>
-                        <td colSpan={row.getVisibleCells().length} style={{ padding: 0, background: 'transparent', border: 'none' }}>
-                          <div style={{ margin: 0, padding: 0 }}>
-                            <TaskTable tasks={row.original.tasks} />
-                          </div>
-                        </td>
+                        {row.getVisibleCells().map(cell => (
+                          <td
+                            key={cell.id}
+                            style={{
+                              width: cell.column.getSize(),
+                            }}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        ))}
                       </tr>
-                    )}
-                  </React.Fragment>
+                      {row.getIsExpanded() && (
+                        <tr>
+                          <td colSpan={row.getVisibleCells().length} style={{ padding: 0, background: 'transparent', border: 'none' }}>
+                            <div style={{ margin: 0, padding: 0 }}>
+                              <TaskTable tasks={row.original.tasks} />
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="pagination-container">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <select
+                value={pageSize}
+                onChange={e => setPagination(prev => ({ ...prev, pageSize: Number(e.target.value), pageIndex: 0 }))}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid #e5e7eb',
+                  fontSize: '13px'
+                }}
+              >
+                {[10, 20, 50, 100].map(size => (
+                  <option key={size} value={size}>
+                    Show {size}
+                  </option>
                 ))}
-            </tbody>
-          </table>
+              </select>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={() => setPagination(prev => ({ ...prev, pageIndex: 0 }))}
+                  disabled={pageIndex === 0}
+                  style={{
+                    padding: '4px 8px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '4px',
+                    background: pageIndex !== 0 ? 'white' : '#f9fafb',
+                    cursor: pageIndex !== 0 ? 'pointer' : 'not-allowed',
+                    color: pageIndex !== 0 ? '#374151' : '#9ca3af'
+                  }}
+                >
+                  ≪
+                </button>
+                <button
+                  onClick={() => setPagination(prev => ({ ...prev, pageIndex: prev.pageIndex - 1 }))}
+                  disabled={pageIndex === 0}
+                  style={{
+                    padding: '4px 8px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '4px',
+                    background: pageIndex !== 0 ? 'white' : '#f9fafb',
+                    cursor: pageIndex !== 0 ? 'pointer' : 'not-allowed',
+                    color: pageIndex !== 0 ? '#374151' : '#9ca3af'
+                  }}
+                >
+                  ＜
+                </button>
+                <span style={{ fontSize: '13px', color: '#374151' }}>
+                  Page {pageIndex + 1} of{' '}
+                  {Math.ceil(data.length / pageSize)}
+                </span>
+                <button
+                  onClick={() => setPagination(prev => ({ ...prev, pageIndex: prev.pageIndex + 1 }))}
+                  disabled={pageIndex >= Math.ceil(data.length / pageSize) - 1}
+                  style={{
+                    padding: '4px 8px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '4px',
+                    background: pageIndex < Math.ceil(data.length / pageSize) - 1 ? 'white' : '#f9fafb',
+                    cursor: pageIndex < Math.ceil(data.length / pageSize) - 1 ? 'pointer' : 'not-allowed',
+                    color: pageIndex < Math.ceil(data.length / pageSize) - 1 ? '#374151' : '#9ca3af'
+                  }}
+                >
+                  ＞
+                </button>
+                <button
+                  onClick={() => setPagination(prev => ({ ...prev, pageIndex: Math.ceil(data.length / pageSize) - 1 }))}
+                  disabled={pageIndex >= Math.ceil(data.length / pageSize) - 1}
+                  style={{
+                    padding: '4px 8px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '4px',
+                    background: pageIndex < Math.ceil(data.length / pageSize) - 1 ? 'white' : '#f9fafb',
+                    cursor: pageIndex < Math.ceil(data.length / pageSize) - 1 ? 'pointer' : 'not-allowed',
+                    color: pageIndex < Math.ceil(data.length / pageSize) - 1 ? '#374151' : '#9ca3af'
+                  }}
+                >
+                  ≫
+                </button>
+              </div>
+            </div>
+          </div>
         </DndContext>
       )}
       {viewMode === 'flat' && (
